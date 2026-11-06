@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import styled, { createGlobalStyle } from "styled-components";
 import ObservationSpot from "./ObservationSpot";
+import TrackerCounter from "./TrackerCounter";
 import {
   STORAGE_KEY,
   initialState,
@@ -22,9 +23,9 @@ const GlobalStyle = createGlobalStyle`
 const Page = styled.main`
   max-width: 1220px;
   margin: 0 auto;
-  padding: 48px 28px;
+  padding: 24px 28px;
   @media (max-width: 760px) {
-    padding: 28px 16px;
+    padding: 18px 16px;
   }
 `;
 const Workspace = styled.div`
@@ -93,44 +94,33 @@ const MapPanel = styled.div`
 `;
 const Header = styled.header`
   color: #3a1814;
-  margin-bottom: 32px;
-  padding-bottom: 30px;
+  margin-bottom: 16px;
   text-align: center;
-  border-bottom: 1px solid #806b4755;
-  &::after {
-    content: "";
-    display: block;
-    width: 100px;
-    height: 2px;
-    margin: 24px auto 0;
-    background: linear-gradient(90deg, #b49360, #c6a15b, #b49360);
-  }
   p {
+    margin: 4px 0;
     color: #38472b;
-    font-size: 0.75rem;
-    letter-spacing: 0.16em;
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
   }
   h1 {
-    margin: 12px 0;
-    font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
-    font-size: clamp(2.8rem, 7vw, 5.6rem);
-    letter-spacing: -0.035em;
-    line-height: 1.1;
-    font-weight: normal;
+    margin: 4px 0;
+    font:
+      normal clamp(2.2rem, 6vw, 3.8rem)/1.1 Georgia,
+      serif;
   }
 `;
 const WingMenu = styled.nav`
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 6px;
+  margin-bottom: 10px;
   @media (max-width: 540px) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 `;
 const WingButton = styled.button`
-  padding: 15px 8px;
+  padding: 9px 4px;
   border: 1px solid ${({ $active }) => ($active ? "#d4b477" : "#66543d")};
   border-radius: 4px;
   color: ${({ $active }) => ($active ? "#fff3de" : "#cdbb9e")};
@@ -146,38 +136,155 @@ const WingButton = styled.button`
     opacity: 0.65;
   }
 `;
-const FloorBar = styled.div`
-  box-shadow:
-    inset 0 0 0 4px #211813,
-    inset 0 0 0 5px #8b7048;
+const FloorBar = styled.section`
   display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 18px;
-  border: 1px solid #806b47;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  margin-bottom: 18px;
+  border: 1px solid #b49360;
+  border-radius: 6px;
   background: #30231c;
-  font-size: 0.8rem;
-  strong {
+  box-shadow:
+    inset 0 0 0 3px #211813,
+    0 3px 8px #0003;
+  .floor-copy {
+    flex: 1;
+    min-width: 0;
+  }
+  h2 {
+    margin: 0;
     color: #f1d9a6;
+    font:
+      normal 1.2rem Georgia,
+      serif;
+  }
+  p {
+    margin: 5px 0;
+    font-size: 0.78rem;
+    color: #e4d5bd;
+  }
+  @media (max-width: 540px) {
+    gap: 10px;
+    padding: 12px;
+    align-items: flex-start;
   }
 `;
-const Instructions = styled.p`
-  margin: 24px auto;
-  max-width: 560px;
-  color: #303e2d;
-  text-align: center;
-  font-size: 0.85rem;
-  line-height: 1.7;
+const Toolbar = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  button {
+    min-height: 44px;
+    padding: 8px 12px;
+    font-size: 0.75rem;
+  }
 `;
-const Entrance = styled.p`
-  text-shadow: 0 1px #ffffff33;
-  margin: 28px 0 18px;
-  color: #34422c;
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font-size: 0.7rem;
+const Dial = styled.svg`
+  width: 170px;
+  flex: 0 0 170px;
+  height: auto;
+  @media (max-width: 540px) {
+    width: 110px;
+    flex-basis: 110px;
+  }
+`;
+function ElevatorDial({ floor }) {
+  const angle = Math.PI + ((floor - 1) / 15) * Math.PI;
+  return (
+    <Dial
+      viewBox="0 0 200 132"
+      role="img"
+      aria-label={`Elevator indicator: floor ${floor} of 16`}
+    >
+      <path
+        d="M8 112 V100 A92 92 0 0 1 192 100 V112 Z"
+        fill="#b49360"
+        stroke="#e2c78c"
+        strokeWidth="2"
+      />
+      <path
+        d="M15 105 V100 A85 85 0 0 1 185 100 V105 Z"
+        fill="#e9dfc8"
+        stroke="#60482e"
+        strokeWidth="3"
+      />
+      {Array.from({ length: 16 }, (_, i) => {
+        const a = Math.PI + (i / 15) * Math.PI;
+        return (
+          <text
+            key={i}
+            x={100 + Math.cos(a) * 72}
+            y={100 + Math.sin(a) * 72}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill="#40251a"
+            fontFamily="Georgia,serif"
+            fontSize="11"
+          >
+            {i + 1}
+          </text>
+        );
+      })}
+      <line
+        x1="100"
+        y1="100"
+        x2={100 + Math.cos(angle) * 58}
+        y2={100 + Math.sin(angle) * 58}
+        stroke="#550000"
+        strokeWidth="4"
+        strokeLinecap="round"
+      />
+      <circle
+        cx="100"
+        cy="100"
+        r="7"
+        fill="#8a622e"
+        stroke="#e6c990"
+        strokeWidth="2"
+      />
+      <text
+        x="100"
+        y="126"
+        textAnchor="middle"
+        fill="#f1d9a6"
+        fontSize="12"
+        fontFamily="Georgia,serif"
+      >
+        FLOOR {String(floor).padStart(2, "0")} / 16
+      </text>
+    </Dial>
+  );
+}
+const NotebookDialog = styled.dialog`
+  width: min(520px, calc(100% - 24px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 22px;
+  border: 3px double #9b855b;
+  border-radius: 8px;
+  background: #e9dfc8;
+  color: #35251d;
+  box-shadow: 0 20px 70px #0008;
+  &::backdrop {
+    background: #16100dcc;
+  }
+  h2 {
+    margin: 0;
+    font:
+      normal 1.5rem Georgia,
+      serif;
+  }
+  p {
+    font-size: 0.85rem;
+  }
+  .dialog-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
 `;
 const SectionFrame = styled.section`
   background:
@@ -558,7 +665,7 @@ function HallwayOverview({ flags, references, floor, total, revisit, onJump }) {
               .join(" · ")
           : references[id]
             ? "Recorded"
-            : "Unrecorded"}
+            : "Not added yet"}
       </MiniSpot>
     );
   }
@@ -570,7 +677,7 @@ function HallwayOverview({ flags, references, floor, total, revisit, onJump }) {
         revisit: <strong>{revisit}</strong>
       </Total>
       <Status>
-        Odd side left · Even side right. Select a space to jump to it. Purple
+        Odd side left · Even side right. Select a space to jump to it. Maroon
         spaces contain your suspected anomalies.
       </Status>
       <MiniHall>
@@ -615,53 +722,6 @@ function HallwayOverview({ flags, references, floor, total, revisit, onJump }) {
   );
 }
 
-const NotebookPanel = styled.section`
-  margin: 24px 0;
-  padding: 18px;
-  border: 1px solid #9b855b;
-  background: #e9dfc8;
-  color: #35251d;
-  h2 {
-    margin: 0;
-    font-family: Georgia, serif;
-    font-size: 1.2rem;
-  }
-  p {
-    font-size: 0.8rem;
-    line-height: 1.6;
-  }
-`;
-const CounterFrame = styled.div`
-  margin: 26px auto 10px;
-  width: fit-content;
-  padding: 14px 20px;
-  border: 4px ridge #b49360;
-  background: #221913;
-  box-shadow:
-    inset 0 2px 8px #0009,
-    0 4px 10px #0005;
-  small {
-    display: block;
-    color: #e0cfb2;
-    margin: 8px 0;
-  }
-`;
-const CounterDigits = styled.div`
-  display: flex;
-  justify-content: center;
-  gap: 3px;
-  span {
-    display: inline-block;
-    padding: 4px 7px;
-    font:
-      bold 26px "Courier New",
-      monospace;
-    color: #e5e8d0;
-    background: linear-gradient(#151713 49%, #000 50%, #292b21 52%);
-    border: 1px solid #6c7258;
-    box-shadow: inset 0 1px #ffffff22;
-  }
-`;
 function validateNotebook(value) {
   const record = (x) =>
     x !== null && typeof x === "object" && !Array.isArray(x);
@@ -789,21 +849,8 @@ function HallwaySection({ sectionNumber, renderSpot }) {
   );
 }
 
-// This prepares an event for a future analytics connection. It sends nothing
-// to a server by itself and does not pretend a local count is a global total.
 function emitQualifiedUse() {
-  const key = "turning-manor-qualified-session-v1";
-  try {
-    if (sessionStorage.getItem(key)) return;
-    sessionStorage.setItem(key, "1");
-  } catch {
-    /* In-memory guard in App still prevents duplicates this mount. */
-  }
-  window.dispatchEvent(
-    new CustomEvent("turning-manor:qualified-use", {
-      detail: { event: "tracker_used", section: 2 },
-    }),
-  );
+  window.dispatchEvent(new CustomEvent("turning-manor:qualified-use"));
 }
 
 export default function App() {
@@ -826,8 +873,9 @@ export default function App() {
   const [referenceView, setReferenceView] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
-  const qualified = useRef(false);
   const importInput = useRef(null);
+  const notebookDialog = useRef(null);
+  const notebookTrigger = useRef(null);
   const [pendingImport, setPendingImport] = useState(null);
   const [notebookMessage, setNotebookMessage] = useState("");
   const [importRevision, setImportRevision] = useState(0);
@@ -857,8 +905,7 @@ export default function App() {
   }, [state, savingPaused]);
 
   function qualify(id) {
-    if (!id.startsWith("s2-") || qualified.current) return;
-    qualified.current = true;
+    if (!id.startsWith("s2-")) return;
     emitQualifiedUse();
   }
   function updateWing(change) {
@@ -1017,36 +1064,74 @@ export default function App() {
             </WingButton>
           ))}
         </WingMenu>
-        <FloorBar>
-          <span>Wing {activeWing}</span>
-          <strong>Floor {String(current.floor).padStart(2, "0")} / 16</strong>
-          <span>
-            {current.complete
-              ? "Wing complete"
-              : referenceView
-                ? "Viewing reference"
-                : current.floor === 1
-                  ? "Reference floor"
-                  : "Anomaly floor"}
-          </span>
+        <FloorBar aria-label="Current floor">
+          <ElevatorDial floor={current.floor} />
+          <div className="floor-copy">
+            <h2>
+              Wing {activeWing} ·{" "}
+              {current.complete
+                ? "Wing complete"
+                : referenceView
+                  ? "Reference notes"
+                  : current.floor === 1
+                    ? "Reference floor"
+                    : "Anomaly floor"}
+            </h2>
+            <p>
+              {current.floor === 1 || referenceView
+                ? "10 paintings · 2 shelves · 5 plants. Add what you see and describe its appearance."
+                : "Compare each item with your notes. Mark differences or choose Not sure to revisit."}
+            </p>
+            <Toolbar>
+              {current.floor > 1 && (
+                <Control
+                  type="button"
+                  aria-pressed={referenceView}
+                  onClick={() => setReferenceView((value) => !value)}
+                >
+                  {referenceView ? "Back to current floor" : "View reference"}
+                </Control>
+              )}
+              <Control
+                ref={notebookTrigger}
+                type="button"
+                aria-haspopup="dialog"
+                onClick={() => notebookDialog.current?.showModal()}
+              >
+                Help &amp; backups
+              </Control>
+            </Toolbar>
+          </div>
         </FloorBar>
-        <Status role="status">
-          {saveError ||
-            "Progress saves in this browser. Use “Save reference” to keep item edits."}
-        </Status>
-        <Controls>
-          {current.floor > 1 && (
+        {saveError && <Status role="alert">{saveError}</Status>}
+        <NotebookDialog
+          ref={notebookDialog}
+          aria-labelledby="notebook-heading"
+          onClose={() => notebookTrigger.current?.focus()}
+        >
+          <div className="dialog-heading">
+            <h2 id="notebook-heading">Help &amp; backups</h2>
             <Control
               type="button"
-              aria-pressed={referenceView}
-              onClick={() => setReferenceView((value) => !value)}
+              autoFocus
+              onClick={() => notebookDialog.current?.close()}
             >
-              {referenceView ? "Return to current floor" : "View reference"}
+              Close
             </Control>
-          )}
-        </Controls>
-        <NotebookPanel aria-labelledby="notebook-heading">
-          <h2 id="notebook-heading">Your field notebook</h2>
+          </div>
+          <p>
+            Your progress saves in this browser. Use Save reference to keep item
+            edits. Save or cancel open edits before changing floors or views.
+          </p>
+          <p>
+            The game calls the reference floor the Primer Floor. It has no
+            glitches. Compare the hallway’s paintings, shelves, and plants on
+            later floors; ignore objects inside rooms.
+          </p>
+          <p>
+            “Not added yet” means you haven’t made a reference for that space.
+            Choose Empty when you have checked it and nothing belongs there.
+          </p>
           <p>
             Export a backup or bring your notebook to another browser. Save any
             open item edits first.
@@ -1097,28 +1182,7 @@ export default function App() {
               </Controls>
             </div>
           )}
-        </NotebookPanel>
-        {(current.floor === 1 || referenceView) && (
-          <NotebookPanel>
-            <h2>Wing 1 · Reference floor (Primer Floor)</h2>
-            <p>
-              Observe <strong>10 paintings, 2 shelves, and 5 plants</strong>.
-              The game’s reference floor has no glitches. Record their locations
-              and appearance yourself.
-            </p>
-            <p>
-              Compare these objects on anomaly floors. The game calls
-              differences “glitches” and tells you to ignore objects inside the
-              rooms.
-            </p>
-          </NotebookPanel>
-        )}
-        <Instructions>
-          {current.floor === 1 || referenceView
-            ? "Record your own reference items and their appearance. Unrecorded spaces are different from spaces you mark Empty."
-            : "Compare with your notes. Choose Looks the same, Something’s different, or Not sure · Revisit for each item."}{" "}
-          Save or cancel open item editors before changing floors or views.
-        </Instructions>
+        </NotebookDialog>
         <Workspace>
           <Sidebar aria-label="Hallway navigation">
             <MobileSummary>
@@ -1147,7 +1211,6 @@ export default function App() {
             </MapPanel>
           </Sidebar>
           <DetailColumn>
-            <Entrance>Hallway entrance</Entrance>
             <HallwayStack>
               {[1, 2, 3, 4, 5].map((number) => (
                 <HallwaySection
@@ -1205,15 +1268,7 @@ export default function App() {
           </DetailColumn>
         </Workspace>
         <Footer>
-          <CounterFrame aria-label="Tracker uses: counter not connected">
-            <small>TRACKER USES</small>
-            <CounterDigits aria-hidden="true">
-              {"------".split("").map((digit, index) => (
-                <span key={index}>{digit}</span>
-              ))}
-            </CounterDigits>
-            <small>Not connected yet</small>
-          </CounterFrame>
+          <TrackerCounter />
           <FooterActions>
             <FooterLink
               $primary
