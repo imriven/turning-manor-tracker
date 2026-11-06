@@ -190,7 +190,7 @@ const Dial = styled.svg`
   }
 `;
 function ElevatorDial({ floor }) {
-  const angle = Math.PI + ((floor - 1) / 15) * Math.PI;
+  const angle = Math.PI + (floor / 16) * Math.PI;
   return (
     <Dial
       viewBox="0 0 200 132"
@@ -209,8 +209,8 @@ function ElevatorDial({ floor }) {
         stroke="#60482e"
         strokeWidth="3"
       />
-      {Array.from({ length: 16 }, (_, i) => {
-        const a = Math.PI + (i / 15) * Math.PI;
+      {Array.from({ length: 17 }, (_, i) => {
+        const a = Math.PI + (i / 16) * Math.PI;
         return (
           <text
             key={i}
@@ -222,7 +222,7 @@ function ElevatorDial({ floor }) {
             fontFamily="Georgia,serif"
             fontSize="11"
           >
-            {i + 1}
+            {i}
           </text>
         );
       })}
@@ -676,7 +676,7 @@ function HallwayOverview({ flags, references, floor, total, revisit, onJump }) {
         revisit: <strong>{revisit}</strong>
       </Total>
       <Status>
-        Odd side left · Even side right. Select a space to jump to it. Maroon
+        Even side left · Odd side right. Select a space to jump to it. Maroon
         spaces contain your suspected anomalies.
       </Status>
       <MiniHall>
@@ -688,25 +688,25 @@ function HallwayOverview({ flags, references, floor, total, revisit, onJump }) {
               <MiniDoor as="div">Section {section}</MiniDoor>
               <MiniGrid>
                 {cell(
-                  `s${section}-odd-before`,
-                  `Section ${section}, odd side before door ${odd}`,
-                )}
-                <Corridor aria-hidden="true" />
-                {cell(
                   `s${section}-even-before`,
                   `Section ${section}, even side before door ${even}`,
                 )}
-                <MiniDoor>Door {odd}</MiniDoor>
                 <Corridor aria-hidden="true" />
-                <MiniDoor>Door {even}</MiniDoor>
                 {cell(
-                  `s${section}-odd-after`,
-                  `Section ${section}, odd side after door ${odd}`,
+                  `s${section}-odd-before`,
+                  `Section ${section}, odd side before door ${odd}`,
                 )}
+                <MiniDoor>Door {even}</MiniDoor>
                 <Corridor aria-hidden="true" />
+                <MiniDoor>Door {odd}</MiniDoor>
                 {cell(
                   `s${section}-even-after`,
                   `Section ${section}, even side after door ${even}`,
+                )}
+                <Corridor aria-hidden="true" />
+                {cell(
+                  `s${section}-odd-after`,
+                  `Section ${section}, odd side after door ${odd}`,
                 )}
               </MiniGrid>
             </MiniSection>
@@ -727,11 +727,13 @@ function validateNotebook(value) {
   if (
     !record(value) ||
     value.app !== "turning-manor-notebook" ||
-    value.version !== 1 ||
+    ![1, 2].includes(value.version) ||
     !record(value.state) ||
     !record(value.state.wings)
   ) {
-    throw new Error("Choose an exported Turning Manor notebook (version 1).");
+    throw new Error(
+      "Choose an exported Turning Manor notebook (version 1 or 2).",
+    );
   }
   const ids = new Set(allSpotIds());
   const types = ["Plant", "Painting", "Shelf", "Empty"];
@@ -751,7 +753,7 @@ function validateNotebook(value) {
     if (
       !record(wing) ||
       !Number.isInteger(wing.floor) ||
-      wing.floor < 1 ||
+      wing.floor < (value.version === 1 ? 1 : 0) ||
       wing.floor > 16 ||
       typeof wing.complete !== "boolean" ||
       (wing.complete && wing.floor !== 16) ||
@@ -782,7 +784,9 @@ function validateNotebook(value) {
         throw new Error("This notebook has invalid observations.");
     }
   }
-  return restoreState(JSON.stringify(value.state));
+  return restoreState(
+    JSON.stringify({ ...value.state, version: value.version }),
+  );
 }
 const wings = [
   { id: 1, available: true },
@@ -801,31 +805,22 @@ function HallwaySection({ sectionNumber, renderSpot }) {
           Section {String(sectionNumber).padStart(2, "0")}
         </h2>
         <span>
-          Rooms {odd} / {even}
+          Rooms {even} / {odd}
         </span>
       </SectionHeading>
       <HallwayGrid>
-        <SideLabel>Odd side</SideLabel>
-        <div aria-hidden="true" />
         <SideLabel>Even side</SideLabel>
-        {renderSpot(
-          `s${sectionNumber}-odd-before`,
-          `Odd side, before door ${odd}`,
-        )}
-        <Corridor aria-hidden="true" />
+        <div aria-hidden="true" />
+        <SideLabel>Odd side</SideLabel>
         {renderSpot(
           `s${sectionNumber}-even-before`,
           `Even side, before door ${even}`,
         )}
-        <Door aria-label={`Room ${odd}`}>
-          <DoorPlaque>
-            <span>Room</span>
-            <strong>{odd}</strong>
-          </DoorPlaque>
-          <Peephole aria-hidden="true" />
-          <BrassKnob aria-hidden="true" />
-        </Door>
         <Corridor aria-hidden="true" />
+        {renderSpot(
+          `s${sectionNumber}-odd-before`,
+          `Odd side, before door ${odd}`,
+        )}
         <Door aria-label={`Room ${even}`}>
           <DoorPlaque>
             <span>Room</span>
@@ -834,14 +829,23 @@ function HallwaySection({ sectionNumber, renderSpot }) {
           <Peephole aria-hidden="true" />
           <BrassKnob aria-hidden="true" />
         </Door>
-        {renderSpot(
-          `s${sectionNumber}-odd-after`,
-          `Odd side, after door ${odd}`,
-        )}
         <Corridor aria-hidden="true" />
+        <Door aria-label={`Room ${odd}`}>
+          <DoorPlaque>
+            <span>Room</span>
+            <strong>{odd}</strong>
+          </DoorPlaque>
+          <Peephole aria-hidden="true" />
+          <BrassKnob aria-hidden="true" />
+        </Door>
         {renderSpot(
           `s${sectionNumber}-even-after`,
           `Even side, after door ${even}`,
+        )}
+        <Corridor aria-hidden="true" />
+        {renderSpot(
+          `s${sectionNumber}-odd-after`,
+          `Odd side, after door ${odd}`,
         )}
       </HallwayGrid>
     </SectionFrame>
@@ -885,7 +889,7 @@ export default function App() {
     (total, id) => total + unsureAt(current.flags, id),
     0,
   );
-  const canFlag = current.floor > 1 && !referenceView && !current.complete;
+  const canFlag = current.floor > 0 && !referenceView && !current.complete;
 
   useEffect(() => {
     if (savingPaused) return;
@@ -928,7 +932,7 @@ export default function App() {
     try {
       const data = {
         app: "turning-manor-notebook",
-        version: 1,
+        version: 2,
         exportedAt: new Date().toISOString(),
         state,
       };
@@ -994,7 +998,7 @@ export default function App() {
         ? current.floor === 16
           ? "Wing complete!"
           : `Now on floor ${current.floor + 1}.`
-        : "Returned to floor 1. Your reference notes are preserved.",
+        : "Returned to floor 0. Your reference notes are preserved.",
     );
   }
   function renderSpot(id, location) {
@@ -1062,17 +1066,17 @@ export default function App() {
                 ? "Wing complete"
                 : referenceView
                   ? "Reference notes"
-                  : current.floor === 1
+                  : current.floor === 0
                     ? "Reference floor"
                     : "Anomaly floor"}
             </h2>
             <p>
-              {current.floor === 1 || referenceView
+              {current.floor === 0 || referenceView
                 ? "10 paintings · 2 shelves · 5 plants. Add what you see and describe its appearance."
                 : "Compare each item with your notes. Mark differences or choose Not sure to revisit."}
             </p>
             <Toolbar>
-              {current.floor > 1 && (
+              {current.floor > 0 && (
                 <Control
                   type="button"
                   aria-pressed={referenceView}
@@ -1239,15 +1243,15 @@ export default function App() {
               ) : (
                 <>
                   <Control type="button" $primary onClick={() => advance(true)}>
-                    {current.floor === 1
-                      ? "Finish reference · Go to floor 2"
+                    {current.floor === 0
+                      ? "Finish reference · Go to floor 1"
                       : current.floor === 16
                         ? "Pass · Complete wing"
                         : "Pass · Next floor"}
                   </Control>
-                  {current.floor > 1 && (
+                  {current.floor > 0 && (
                     <Control type="button" onClick={() => advance(false)}>
-                      Fail · Return to floor 1
+                      Fail · Return to floor 0
                     </Control>
                   )}
                 </>

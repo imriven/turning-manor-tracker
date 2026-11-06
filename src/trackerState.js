@@ -1,98 +1,76 @@
 export const STORAGE_KEY = "turning-manor-progress-v1";
-
 export function initialState() {
   return {
+    version: 2,
     activeWing: 1,
     wings: Object.fromEntries(
       [1, 2, 3, 4].map((id) => [
         id,
-        {
-          floor: 1,
-          complete: false,
-          references: {},
-          flags: {},
-        },
-      ])
+        { floor: 0, complete: false, references: {}, flags: {} },
+      ]),
     ),
   };
 }
-
 export function restoreState(raw) {
   const result = initialState();
-
   if (!raw) return result;
-
   const saved = JSON.parse(raw);
-
+  const legacy = saved?.version !== 2;
   for (const id of [1, 2, 3, 4]) {
     const wing = saved?.wings?.[id];
-
     if (!wing) continue;
-
     const references = {};
-
     for (const [key, ref] of Object.entries(wing.references ?? {})) {
       if (
         !Array.isArray(ref?.items) ||
         !ref.items.length ||
         ref.items.length > 2
-      ) {
+      )
         continue;
-      }
-
       if (
         new Set(ref.items).size !== ref.items.length ||
         ref.items.some(
-          (item) => !["Plant", "Painting", "Shelf", "Empty"].includes(item)
+          (x) => !["Plant", "Painting", "Shelf", "Empty"].includes(x),
         )
-      ) {
+      )
         continue;
-      }
-
-      if (ref.items.includes("Empty") && ref.items.length !== 1) {
-        continue;
-      }
-
+      if (ref.items.includes("Empty") && ref.items.length !== 1) continue;
       references[key] = {
         items: ref.items,
         notes: Object.fromEntries(
-          ref.items.map((item) => [
-            item,
-            typeof ref.notes?.[item] === "string" ? ref.notes[item] : "",
-          ])
+          ref.items.map((x) => [
+            x,
+            typeof ref.notes?.[x] === "string" ? ref.notes[x] : "",
+          ]),
         ),
       };
     }
-
+    // Old notebooks counted the reference floor as 1. Move in-progress runs
+    // down one floor once, preserving each room's notes and assessments.
+    const migratedFloor = Number.isInteger(wing.floor)
+      ? wing.floor - (legacy && !wing.complete ? 1 : 0)
+      : 0;
     result.wings[id] = {
-      floor: Number.isInteger(wing.floor)
-        ? Math.min(16, Math.max(1, wing.floor))
-        : 1,
+      floor: Math.min(16, Math.max(0, migratedFloor)),
       complete: wing.complete === true && wing.floor === 16,
       references,
       flags: Object.fromEntries(
         Object.entries(wing.flags ?? {})
           .filter(
-            ([, value]) =>
-              value === true ||
-              ["same", "different", "unsure"].includes(value)
+            ([, v]) =>
+              v === true || ["same", "different", "unsure"].includes(v),
           )
-          .map(([key, value]) => [
-            key,
-            value === true ? "different" : value,
-          ])
+          .map(([key, value]) => [key, value === true ? "different" : value]),
       ),
     };
   }
-
   return result;
 }
-
 export function finishFloor(wing, passed) {
   return {
     ...wing,
     flags: {},
-    floor: passed ? Math.min(16, wing.floor + 1) : 1,
+    floor: passed ? Math.min(16, wing.floor + 1) : 0,
     complete: passed && wing.floor === 16,
   };
 }
