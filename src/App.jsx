@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import styled, { createGlobalStyle } from "styled-components";
 import ObservationSpot from "./ObservationSpot";
-import TrackerCounter from "./TrackerCounter";
 import {
   STORAGE_KEY,
   initialState,
@@ -849,10 +848,6 @@ function HallwaySection({ sectionNumber, renderSpot }) {
   );
 }
 
-function emitQualifiedUse() {
-  window.dispatchEvent(new CustomEvent("turning-manor:qualified-use"));
-}
-
 export default function App() {
   const [loaded] = useState(() => {
     try {
@@ -904,10 +899,6 @@ export default function App() {
     }
   }, [state, savingPaused]);
 
-  function qualify(id) {
-    if (!id.startsWith("s2-")) return;
-    emitQualifiedUse();
-  }
   function updateWing(change) {
     setState((previous) => ({
       ...previous,
@@ -925,7 +916,6 @@ export default function App() {
         Object.entries(wing.flags).filter(([key]) => !key.startsWith(`${id}-`)),
       ),
     }));
-    qualify(id);
   }
   function toggleFlag(id, item, status) {
     if (!canFlag) return;
@@ -933,7 +923,6 @@ export default function App() {
       ...wing,
       flags: { ...wing.flags, [`${id}-${item}`]: status },
     }));
-    qualify(id);
   }
   function exportNotebook() {
     try {
@@ -1268,7 +1257,6 @@ export default function App() {
           </DetailColumn>
         </Workspace>
         <Footer>
-          <TrackerCounter />
           <FooterActions>
             <FooterLink
               $primary
