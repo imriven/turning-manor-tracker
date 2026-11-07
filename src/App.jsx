@@ -6,6 +6,7 @@ import {
   initialState,
   restoreState,
   finishFloor,
+  spaceChecked,
 } from "./trackerState";
 
 const GlobalStyle = createGlobalStyle`
@@ -637,7 +638,15 @@ function allSpotIds() {
     )
     .concat("end-corner");
 }
-function HallwayOverview({ flags, references, floor, total, revisit, onJump }) {
+function HallwayOverview({
+  flags,
+  references,
+  floor,
+  total,
+  revisit,
+  onJump,
+  checking,
+}) {
   function jump(id) {
     const target = document.getElementById(`spot-${id}`);
     if (!target) return;
@@ -650,21 +659,32 @@ function HallwayOverview({ flags, references, floor, total, revisit, onJump }) {
   function cell(id, location) {
     const count = markedAt(flags, id);
     const unsure = unsureAt(flags, id);
+    const checked = spaceChecked(references[id], flags, id);
+    const progressLabel = checking
+      ? checked
+        ? "Checked"
+        : references[id]
+          ? "Needs checking"
+          : "Add reference"
+      : references[id]
+        ? "Recorded"
+        : "Not added yet";
     return (
       <MiniSpot
         type="button"
         $marked={count > 0}
         $unsure={unsure > 0}
-        aria-label={`${location}: ${count} anomalies marked, ${unsure} items to revisit. Jump to observation.`}
+        aria-label={`${location}: ${progressLabel}. ${count} anomalies marked, ${unsure} items to revisit. Jump to observation.`}
         onClick={() => jump(id)}
       >
-        {count || unsure
-          ? [count ? `${count} marked` : "", unsure ? `${unsure} revisit` : ""]
+        {progressLabel}
+        {(count > 0 || unsure > 0) && (
+          <span style={{ display: "block" }}>
+            {[count ? `${count} marked` : "", unsure ? `${unsure} revisit` : ""]
               .filter(Boolean)
-              .join(" · ")
-          : references[id]
-            ? "Recorded"
-            : "Not added yet"}
+              .join(" · ")}
+          </span>
+        )}
       </MiniSpot>
     );
   }
@@ -757,6 +777,12 @@ function validateNotebook(value) {
       wing.floor > 16 ||
       typeof wing.complete !== "boolean" ||
       (wing.complete && wing.floor !== 16) ||
+      (wing.retryFloor != null &&
+        (!Number.isInteger(wing.retryFloor) ||
+          wing.retryFloor < 1 ||
+          wing.retryFloor > 16 ||
+          wing.floor !== 0 ||
+          wing.complete)) ||
       !record(wing.references) ||
       !record(wing.flags)
     )
@@ -795,7 +821,7 @@ const wings = [
   { id: 4, available: false },
 ];
 
-function HallwaySection({ sectionNumber, renderSpot }) {
+function HallwaySection({ sectionNumber, renderSpot, progressText }) {
   const odd = String(sectionNumber * 2 - 1).padStart(2, "0");
   const even = String(sectionNumber * 2).padStart(2, "0");
   return (
@@ -806,6 +832,9 @@ function HallwaySection({ sectionNumber, renderSpot }) {
         </h2>
         <span>
           Rooms {even} / {odd}
+          {progressText && (
+            <small style={{ display: "block" }}>{progressText}</small>
+          )}
         </span>
       </SectionHeading>
       <HallwayGrid>
@@ -889,6 +918,18 @@ export default function App() {
     (total, id) => total + unsureAt(current.flags, id),
     0,
   );
+  const unchecked = allSpotIds().filter(
+    (id) => !spaceChecked(current.references[id], current.flags, id),
+  );
+  const checkedCount = 21 - unchecked.length;
+  function jumpToUnchecked() {
+    setMapOpen(false);
+    requestAnimationFrame(() => {
+      const target = document.getElementById(`spot-${unchecked[0]}`);
+      target?.focus({ preventScroll: true });
+      target?.scrollIntoView({ block: "center", behavior: "auto" });
+    });
+  }
   const canFlag = current.floor > 0 && !referenceView && !current.complete;
 
   useEffect(() => {
@@ -997,8 +1038,10 @@ export default function App() {
       passed
         ? current.floor === 16
           ? "Wing complete!"
-          : `Now on floor ${current.floor + 1}.`
-        : "Returned to floor 0. Your reference notes are preserved.",
+          : `Now on floor ${current.floor === 0 ? (current.retryFloor ?? 1) : current.floor + 1}.`
+        : current.complete
+          ? "New run. Your reference notes are preserved."
+          : `Returned to floor 0. Retry floor ${current.floor || current.retryFloor || 1} when ready.`,
     );
   }
   function renderSpot(id, location) {
@@ -1075,7 +1118,32 @@ export default function App() {
                 ? "10 paintings · 2 shelves · 5 plants. Add what you see and describe its appearance."
                 : "Compare each item with your notes. Mark differences or choose Not sure to revisit."}
             </p>
+            {current.floor === 0 && current.retryFloor && (
+              <p>
+                Review your reference, then retry Floor {current.retryFloor}.
+                Your earlier floors are already passed.
+              </p>
+            )}
+            {canFlag && (
+              <p role="status">
+                {checkedCount}/21 spaces checked ·{" "}
+                {unchecked.length
+                  ? `${unchecked.length} still need checking`
+                  : "Every space checked"}{" "}
+                · {revisitTotal} items to revisit
+              </p>
+            )}
             <Toolbar>
+              {current.floor === 0 && current.retryFloor && (
+                <Control type="button" $primary onClick={() => advance(true)}>
+                  Retry floor {current.retryFloor}
+                </Control>
+              )}
+              {canFlag && unchecked.length > 0 && (
+                <Control type="button" onClick={jumpToUnchecked}>
+                  Next unchecked space
+                </Control>
+              )}
               {current.floor > 0 && (
                 <Control
                   type="button"
@@ -1182,6 +1250,11 @@ export default function App() {
               <span>
                 Floor {current.floor}/16 · <strong>{anomalyTotal}</strong>{" "}
                 marked · <strong>{revisitTotal}</strong> revisit
+                {canFlag && (
+                  <span style={{ display: "block" }}>
+                    {checkedCount}/21 spaces checked
+                  </span>
+                )}
               </span>
               <button
                 type="button"
@@ -1196,6 +1269,7 @@ export default function App() {
               <HallwayOverview
                 flags={current.flags}
                 references={current.references}
+                checking={canFlag}
                 floor={current.floor}
                 total={anomalyTotal}
                 revisit={revisitTotal}
@@ -1209,13 +1283,31 @@ export default function App() {
                 <HallwaySection
                   key={number}
                   sectionNumber={number}
+                  progressText={
+                    canFlag
+                      ? `${allSpotIds().filter((id) => id.startsWith(`s${number}-`) && spaceChecked(current.references[id], current.flags, id)).length}/4 spaces checked`
+                      : null
+                  }
                   renderSpot={renderSpot}
                 />
               ))}
               <SectionFrame aria-labelledby="end-section">
                 <SectionHeading>
                   <h2 id="end-section">End section</h2>
-                  <span>Corner</span>
+                  <span>
+                    Corner
+                    {canFlag && (
+                      <small style={{ display: "block" }}>
+                        {spaceChecked(
+                          current.references["end-corner"],
+                          current.flags,
+                          "end-corner",
+                        )
+                          ? "1/1 space checked"
+                          : "0/1 space checked"}
+                      </small>
+                    )}
+                  </span>
                 </SectionHeading>
                 <CornerSpace>
                   {renderSpot("end-corner", "End of hallway, corner")}
@@ -1231,6 +1323,17 @@ export default function App() {
               Each different item counts once. Unsure items stay separate until
               you decide.
             </Status>
+            {canFlag && (
+              <Status role="status">
+                {checkedCount}/21 spaces checked.{" "}
+                {unchecked.length > 0
+                  ? `${unchecked.length} still need checking. `
+                  : ""}
+                {revisitTotal > 0
+                  ? `${revisitTotal} items marked Not sure still need a decision.`
+                  : ""}
+              </Status>
+            )}
             <Controls>
               {current.complete ? (
                 <Control type="button" onClick={() => advance(false)}>
@@ -1244,7 +1347,9 @@ export default function App() {
                 <>
                   <Control type="button" $primary onClick={() => advance(true)}>
                     {current.floor === 0
-                      ? "Finish reference · Go to floor 1"
+                      ? current.retryFloor
+                        ? `Retry floor ${current.retryFloor}`
+                        : "Finish reference · Go to floor 1"
                       : current.floor === 16
                         ? "Pass · Complete wing"
                         : "Pass · Next floor"}

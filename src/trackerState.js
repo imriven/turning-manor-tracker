@@ -1,3 +1,4 @@
+
 export const STORAGE_KEY = "turning-manor-progress-v1";
 export function initialState() {
   return {
@@ -6,7 +7,13 @@ export function initialState() {
     wings: Object.fromEntries(
       [1, 2, 3, 4].map((id) => [
         id,
-        { floor: 0, complete: false, references: {}, flags: {} },
+        {
+          floor: 0,
+          retryFloor: null,
+          complete: false,
+          references: {},
+          flags: {},
+        },
       ]),
     ),
   };
@@ -53,6 +60,13 @@ export function restoreState(raw) {
     result.wings[id] = {
       floor: Math.min(16, Math.max(0, migratedFloor)),
       complete: wing.complete === true && wing.floor === 16,
+      retryFloor:
+        migratedFloor === 0 &&
+        Number.isInteger(wing.retryFloor) &&
+        wing.retryFloor >= 1 &&
+        wing.retryFloor <= 16
+          ? wing.retryFloor
+          : null,
       references,
       flags: Object.fromEntries(
         Object.entries(wing.flags ?? {})
@@ -67,10 +81,36 @@ export function restoreState(raw) {
   return result;
 }
 export function finishFloor(wing, passed) {
+  if (!passed) {
+    return {
+      ...wing,
+      flags: {},
+      floor: 0,
+      complete: false,
+      retryFloor: wing.complete
+        ? null
+        : wing.floor > 0
+          ? wing.floor
+          : (wing.retryFloor ?? null),
+    };
+  }
   return {
     ...wing,
     flags: {},
-    floor: passed ? Math.min(16, wing.floor + 1) : 0,
-    complete: passed && wing.floor === 16,
+    retryFloor: null,
+    floor:
+      wing.floor === 0 ? (wing.retryFloor ?? 1) : Math.min(16, wing.floor + 1),
+    complete: wing.floor === 16,
   };
+}
+
+// Every reference item needs a response; optional extra-change controls don't.
+// "Unsure" is an answered item, still highlighted separately for revisiting.
+export function spaceChecked(reference, flags, id) {
+  if (!reference?.items?.length) return false;
+  return reference.items.every((item) =>
+    ["same", "different", "unsure"].includes(
+      flags[`${id}-${item === "Empty" ? "appeared" : item}`],
+    ),
+  );
 }
