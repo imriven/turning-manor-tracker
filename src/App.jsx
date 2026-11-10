@@ -1,8 +1,11 @@
+
 import { useEffect, useRef, useState } from "react";
 import styled, { createGlobalStyle } from "styled-components";
+import GalleryTracker from "./GalleryTracker";
 import ObservationSpot from "./ObservationSpot";
 import {
   STORAGE_KEY,
+  validGalleryEntries,
   initialState,
   restoreState,
   finishFloor,
@@ -783,6 +786,12 @@ function validateNotebook(value) {
           wing.retryFloor > 16 ||
           wing.floor !== 0 ||
           wing.complete)) ||
+      (wing.galleryNotes != null &&
+        (!record(wing.galleryNotes) ||
+          Object.values(wing.galleryNotes).some(
+            (note) => typeof note !== "string",
+          ))) ||
+      !validGalleryEntries(wing.galleryEntries) ||
       !record(wing.references) ||
       !record(wing.flags)
     )
@@ -816,7 +825,7 @@ function validateNotebook(value) {
 }
 const wings = [
   { id: 1, available: true },
-  { id: 2, available: false },
+  { id: 2, available: true },
   { id: 3, available: false },
   { id: 4, available: false },
 ];
@@ -903,6 +912,63 @@ export default function App() {
   const [announcement, setAnnouncement] = useState("");
   const importInput = useRef(null);
   const notebookDialog = useRef(null);
+  const spoilerDialog = useRef(null);
+  const spoilerTrigger = useRef(null);
+  const visitedWings = useRef(new Set());
+  const [pendingWing, setPendingWing] = useState(null);
+  const [rememberWing, setRememberWing] = useState(false);
+  const [spoilerPreferences, setSpoilerPreferences] = useState(() => {
+    try {
+      return (
+        JSON.parse(
+          localStorage.getItem("turning-manor-spoiler-preferences-v1"),
+        ) || {}
+      );
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (pendingWing !== null && !spoilerDialog.current?.open)
+      spoilerDialog.current?.showModal();
+  }, [pendingWing]);
+  function selectWing(id) {
+    setState((previous) => ({ ...previous, activeWing: id }));
+    setReferenceView(false);
+    setMapOpen(false);
+  }
+  function requestWing(id, trigger) {
+    if (id === state.activeWing) return;
+    if (
+      id === 1 ||
+      visitedWings.current.has(id) ||
+      spoilerPreferences?.[id] === true
+    ) {
+      selectWing(id);
+      return;
+    }
+    spoilerTrigger.current = trigger;
+    setRememberWing(false);
+    setPendingWing(id);
+  }
+  function openPendingWing() {
+    if (pendingWing === null) return;
+    visitedWings.current.add(pendingWing);
+    if (rememberWing) {
+      const next = { ...spoilerPreferences, [pendingWing]: true };
+      setSpoilerPreferences(next);
+      try {
+        localStorage.setItem(
+          "turning-manor-spoiler-preferences-v1",
+          JSON.stringify(next),
+        );
+      } catch {
+        /* Session acknowledgement still works. */
+      }
+    }
+    selectWing(pendingWing);
+    spoilerDialog.current?.close();
+  }
   const notebookTrigger = useRef(null);
   const [pendingImport, setPendingImport] = useState(null);
   const [notebookMessage, setNotebookMessage] = useState("");
@@ -1090,281 +1156,310 @@ export default function App() {
               $active={activeWing === wing.id}
               aria-current={activeWing === wing.id ? "page" : undefined}
               disabled={!wing.available}
-              onClick={() => {
-                setState((previous) => ({ ...previous, activeWing: wing.id }));
-                setReferenceView(false);
-              }}
+              onClick={(event) => requestWing(wing.id, event.currentTarget)}
             >
               Wing {wing.id}
               <small>{wing.available ? "Available" : "Locked"}</small>
             </WingButton>
           ))}
         </WingMenu>
-        <FloorBar aria-label="Current floor">
-          <ElevatorDial floor={current.floor} />
-          <div className="floor-copy">
-            <h2>
-              Wing {activeWing} ·{" "}
-              {current.complete
-                ? "Wing complete"
-                : referenceView
-                  ? "Reference notes"
-                  : current.floor === 0
-                    ? "Reference floor"
-                    : "Anomaly floor"}
-            </h2>
-            <p>
-              {current.floor === 0 || referenceView
-                ? "10 paintings · 2 shelves · 5 plants. Add what you see and describe its appearance."
-                : "Compare each item with your notes. Mark differences or choose Not sure to revisit."}
-            </p>
-            {current.floor === 0 && current.retryFloor && (
-              <p>
-                Review your reference, then retry Floor {current.retryFloor}.
-                Your earlier floors are already passed.
-              </p>
-            )}
-            {canFlag && (
-              <p role="status">
-                {checkedCount}/21 spaces checked ·{" "}
-                {unchecked.length
-                  ? `${unchecked.length} still need checking`
-                  : "Every space checked"}{" "}
-                · {revisitTotal} items to revisit
-              </p>
-            )}
-            <Toolbar>
-              {current.floor === 0 && current.retryFloor && (
-                <Control type="button" $primary onClick={() => advance(true)}>
-                  Retry floor {current.retryFloor}
-                </Control>
-              )}
-              {canFlag && unchecked.length > 0 && (
-                <Control type="button" onClick={jumpToUnchecked}>
-                  Next unchecked space
-                </Control>
-              )}
-              {current.floor > 0 && (
-                <Control
-                  type="button"
-                  aria-pressed={referenceView}
-                  onClick={() => setReferenceView((value) => !value)}
-                >
-                  {referenceView ? "Back to current floor" : "View reference"}
-                </Control>
-              )}
-              <Control
-                ref={notebookTrigger}
-                type="button"
-                aria-haspopup="dialog"
-                onClick={() => notebookDialog.current?.showModal()}
-              >
-                Help &amp; backups
-              </Control>
-            </Toolbar>
-          </div>
-        </FloorBar>
-        {saveError && <Status role="alert">{saveError}</Status>}
-        <NotebookDialog
-          ref={notebookDialog}
-          aria-labelledby="notebook-heading"
-          onClose={() => notebookTrigger.current?.focus()}
-        >
-          <div className="dialog-heading">
-            <h2 id="notebook-heading">Help &amp; backups</h2>
-            <Control
-              type="button"
-              autoFocus
-              onClick={() => notebookDialog.current?.close()}
-            >
-              Close
-            </Control>
-          </div>
-          <p>
-            Your progress saves in this browser. Use Save reference to keep item
-            edits. Save or cancel open edits before changing floors or views.
-          </p>
-          <p>
-            The game calls the reference floor the Primer Floor. It has no
-            glitches. Compare the hallway’s paintings, shelves, and plants on
-            later floors; ignore objects inside rooms.
-          </p>
-          <p>
-            “Not added yet” means you haven’t made a reference for that space.
-            Choose Empty when you have checked it and nothing belongs there.
-          </p>
-          <p>
-            Export a backup or bring your notebook to another browser. Save any
-            open item edits first.
-          </p>
-          <Controls>
-            <Control type="button" onClick={exportNotebook}>
-              Export notebook
-            </Control>
-            <Control type="button" onClick={() => importInput.current?.click()}>
-              Import notebook
-            </Control>
-          </Controls>
-          <input
-            ref={importInput}
-            type="file"
-            accept=".json,application/json"
-            hidden
-            onChange={readNotebook}
+        {activeWing === 2 ? (
+          <GalleryTracker
+            key={`${activeWing}-${importRevision}`}
+            wing={current}
+            onUpdate={updateWing}
+            onAdvance={advance}
+            onExport={exportNotebook}
+            message={notebookMessage}
+            error={saveError}
           />
-          <p role="status">{notebookMessage}</p>
-          {pendingImport && (
-            <div>
-              <p>
-                <strong>{pendingImport.name}</strong> ·{" "}
-                {Object.values(pendingImport.state.wings).reduce(
-                  (sum, wing) => sum + Object.keys(wing.references).length,
-                  0,
-                )}{" "}
-                recorded spaces.
-              </p>
-              <p>
-                This replaces your current notes and progress. Export your
-                current notebook first if you want to keep both.
-              </p>
-              <Controls>
-                <Control type="button" onClick={applyImport}>
-                  Replace my notebook
-                </Control>
-                <Control
-                  type="button"
-                  onClick={() => {
-                    setPendingImport(null);
-                    setNotebookMessage("Import cancelled.");
-                  }}
-                >
-                  Cancel import
-                </Control>
-              </Controls>
-            </div>
-          )}
-        </NotebookDialog>
-        <Workspace>
-          <Sidebar aria-label="Hallway navigation">
-            <MobileSummary>
-              <span>
-                Floor {current.floor}/16 · <strong>{anomalyTotal}</strong>{" "}
-                marked · <strong>{revisitTotal}</strong> revisit
-                {canFlag && (
-                  <span style={{ display: "block" }}>
-                    {checkedCount}/21 spaces checked
-                  </span>
+        ) : (
+          <>
+            <FloorBar aria-label="Current floor">
+              <ElevatorDial floor={current.floor} />
+              <div className="floor-copy">
+                <h2>
+                  Wing {activeWing} ·{" "}
+                  {current.complete
+                    ? "Wing complete"
+                    : referenceView
+                      ? "Reference notes"
+                      : current.floor === 0
+                        ? "Reference floor"
+                        : "Anomaly floor"}
+                </h2>
+                <p>
+                  {current.floor === 0 || referenceView
+                    ? "10 paintings · 2 shelves · 5 plants. Add what you see and describe its appearance."
+                    : "Compare each item with your notes. Mark differences or choose Not sure to revisit."}
+                </p>
+                {current.floor === 0 && current.retryFloor && (
+                  <p>
+                    Review your reference, then retry Floor {current.retryFloor}
+                    . Your earlier floors are already passed.
+                  </p>
                 )}
-              </span>
-              <button
-                type="button"
-                aria-expanded={mapOpen}
-                aria-controls="map-panel"
-                onClick={() => setMapOpen((value) => !value)}
-              >
-                {mapOpen ? "Close map" : "Open map"}
-              </button>
-            </MobileSummary>
-            <MapPanel id="map-panel" $open={mapOpen}>
-              <HallwayOverview
-                flags={current.flags}
-                references={current.references}
-                checking={canFlag}
-                floor={current.floor}
-                total={anomalyTotal}
-                revisit={revisitTotal}
-                onJump={() => setMapOpen(false)}
-              />
-            </MapPanel>
-          </Sidebar>
-          <DetailColumn>
-            <HallwayStack>
-              {[1, 2, 3, 4, 5].map((number) => (
-                <HallwaySection
-                  key={number}
-                  sectionNumber={number}
-                  progressText={
-                    canFlag
-                      ? `${allSpotIds().filter((id) => id.startsWith(`s${number}-`) && spaceChecked(current.references[id], current.flags, id)).length}/4 spaces checked`
-                      : null
-                  }
-                  renderSpot={renderSpot}
-                />
-              ))}
-              <SectionFrame aria-labelledby="end-section">
-                <SectionHeading>
-                  <h2 id="end-section">End section</h2>
-                  <span>
-                    Corner
-                    {canFlag && (
-                      <small style={{ display: "block" }}>
-                        {spaceChecked(
-                          current.references["end-corner"],
-                          current.flags,
-                          "end-corner",
-                        )
-                          ? "1/1 space checked"
-                          : "0/1 space checked"}
-                      </small>
-                    )}
-                  </span>
-                </SectionHeading>
-                <CornerSpace>
-                  {renderSpot("end-corner", "End of hallway, corner")}
-                </CornerSpace>
-              </SectionFrame>
-            </HallwayStack>
-            <Total>
-              Floor {current.floor} · Anomalies marked:{" "}
-              <strong>{anomalyTotal}</strong> · Items to revisit:{" "}
-              <strong>{revisitTotal}</strong>
-            </Total>
-            <Status>
-              Each different item counts once. Unsure items stay separate until
-              you decide.
-            </Status>
-            {canFlag && (
-              <Status role="status">
-                {checkedCount}/21 spaces checked.{" "}
-                {unchecked.length > 0
-                  ? `${unchecked.length} still need checking. `
-                  : ""}
-                {revisitTotal > 0
-                  ? `${revisitTotal} items marked Not sure still need a decision.`
-                  : ""}
-              </Status>
-            )}
-            <Controls>
-              {current.complete ? (
-                <Control type="button" onClick={() => advance(false)}>
-                  Start another run
-                </Control>
-              ) : referenceView ? (
-                <Control type="button" onClick={() => setReferenceView(false)}>
-                  Return to current floor
-                </Control>
-              ) : (
-                <>
-                  <Control type="button" $primary onClick={() => advance(true)}>
-                    {current.floor === 0
-                      ? current.retryFloor
-                        ? `Retry floor ${current.retryFloor}`
-                        : "Finish reference · Go to floor 1"
-                      : current.floor === 16
-                        ? "Pass · Complete wing"
-                        : "Pass · Next floor"}
-                  </Control>
-                  {current.floor > 0 && (
-                    <Control type="button" onClick={() => advance(false)}>
-                      Fail · Return to floor 0
+                {canFlag && (
+                  <p role="status">
+                    {checkedCount}/21 spaces checked ·{" "}
+                    {unchecked.length
+                      ? `${unchecked.length} still need checking`
+                      : "Every space checked"}{" "}
+                    · {revisitTotal} items to revisit
+                  </p>
+                )}
+                <Toolbar>
+                  {current.floor === 0 && current.retryFloor && (
+                    <Control
+                      type="button"
+                      $primary
+                      onClick={() => advance(true)}
+                    >
+                      Retry floor {current.retryFloor}
                     </Control>
                   )}
-                </>
+                  {canFlag && unchecked.length > 0 && (
+                    <Control type="button" onClick={jumpToUnchecked}>
+                      Next unchecked space
+                    </Control>
+                  )}
+                  {current.floor > 0 && (
+                    <Control
+                      type="button"
+                      aria-pressed={referenceView}
+                      onClick={() => setReferenceView((value) => !value)}
+                    >
+                      {referenceView
+                        ? "Back to current floor"
+                        : "View reference"}
+                    </Control>
+                  )}
+                  <Control
+                    ref={notebookTrigger}
+                    type="button"
+                    aria-haspopup="dialog"
+                    onClick={() => notebookDialog.current?.showModal()}
+                  >
+                    Help &amp; backups
+                  </Control>
+                </Toolbar>
+              </div>
+            </FloorBar>
+            {saveError && <Status role="alert">{saveError}</Status>}
+            <NotebookDialog
+              ref={notebookDialog}
+              aria-labelledby="notebook-heading"
+              onClose={() => notebookTrigger.current?.focus()}
+            >
+              <div className="dialog-heading">
+                <h2 id="notebook-heading">Help &amp; backups</h2>
+                <Control
+                  type="button"
+                  autoFocus
+                  onClick={() => notebookDialog.current?.close()}
+                >
+                  Close
+                </Control>
+              </div>
+              <p>
+                Your progress saves in this browser. Use Save reference to keep
+                item edits. Save or cancel open edits before changing floors or
+                views.
+              </p>
+              <p>
+                The game calls the reference floor the Primer Floor. It has no
+                glitches. Compare the hallway’s paintings, shelves, and plants
+                on later floors; ignore objects inside rooms.
+              </p>
+              <p>
+                “Not added yet” means you haven’t made a reference for that
+                space. Choose Empty when you have checked it and nothing belongs
+                there.
+              </p>
+              <p>
+                Export a backup or bring your notebook to another browser. Save
+                any open item edits first.
+              </p>
+              <Controls>
+                <Control type="button" onClick={exportNotebook}>
+                  Export notebook
+                </Control>
+                <Control
+                  type="button"
+                  onClick={() => importInput.current?.click()}
+                >
+                  Import notebook
+                </Control>
+              </Controls>
+              <input
+                ref={importInput}
+                type="file"
+                accept=".json,application/json"
+                hidden
+                onChange={readNotebook}
+              />
+              <p role="status">{notebookMessage}</p>
+              {pendingImport && (
+                <div>
+                  <p>
+                    <strong>{pendingImport.name}</strong> ·{" "}
+                    {Object.values(pendingImport.state.wings).reduce(
+                      (sum, wing) => sum + Object.keys(wing.references).length,
+                      0,
+                    )}{" "}
+                    recorded spaces.
+                  </p>
+                  <p>
+                    This replaces your current notes and progress. Export your
+                    current notebook first if you want to keep both.
+                  </p>
+                  <Controls>
+                    <Control type="button" onClick={applyImport}>
+                      Replace my notebook
+                    </Control>
+                    <Control
+                      type="button"
+                      onClick={() => {
+                        setPendingImport(null);
+                        setNotebookMessage("Import cancelled.");
+                      }}
+                    >
+                      Cancel import
+                    </Control>
+                  </Controls>
+                </div>
               )}
-            </Controls>
-            <Status aria-live="polite">{announcement}</Status>
-          </DetailColumn>
-        </Workspace>
+            </NotebookDialog>
+            <Workspace>
+              <Sidebar aria-label="Hallway navigation">
+                <MobileSummary>
+                  <span>
+                    Floor {current.floor}/16 · <strong>{anomalyTotal}</strong>{" "}
+                    marked · <strong>{revisitTotal}</strong> revisit
+                    {canFlag && (
+                      <span style={{ display: "block" }}>
+                        {checkedCount}/21 spaces checked
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    aria-expanded={mapOpen}
+                    aria-controls="map-panel"
+                    onClick={() => setMapOpen((value) => !value)}
+                  >
+                    {mapOpen ? "Close map" : "Open map"}
+                  </button>
+                </MobileSummary>
+                <MapPanel id="map-panel" $open={mapOpen}>
+                  <HallwayOverview
+                    flags={current.flags}
+                    references={current.references}
+                    checking={canFlag}
+                    floor={current.floor}
+                    total={anomalyTotal}
+                    revisit={revisitTotal}
+                    onJump={() => setMapOpen(false)}
+                  />
+                </MapPanel>
+              </Sidebar>
+              <DetailColumn>
+                <HallwayStack>
+                  {[1, 2, 3, 4, 5].map((number) => (
+                    <HallwaySection
+                      key={number}
+                      sectionNumber={number}
+                      progressText={
+                        canFlag
+                          ? `${allSpotIds().filter((id) => id.startsWith(`s${number}-`) && spaceChecked(current.references[id], current.flags, id)).length}/4 spaces checked`
+                          : null
+                      }
+                      renderSpot={renderSpot}
+                    />
+                  ))}
+                  <SectionFrame aria-labelledby="end-section">
+                    <SectionHeading>
+                      <h2 id="end-section">End section</h2>
+                      <span>
+                        Corner
+                        {canFlag && (
+                          <small style={{ display: "block" }}>
+                            {spaceChecked(
+                              current.references["end-corner"],
+                              current.flags,
+                              "end-corner",
+                            )
+                              ? "1/1 space checked"
+                              : "0/1 space checked"}
+                          </small>
+                        )}
+                      </span>
+                    </SectionHeading>
+                    <CornerSpace>
+                      {renderSpot("end-corner", "End of hallway, corner")}
+                    </CornerSpace>
+                  </SectionFrame>
+                </HallwayStack>
+                <Total>
+                  Floor {current.floor} · Anomalies marked:{" "}
+                  <strong>{anomalyTotal}</strong> · Items to revisit:{" "}
+                  <strong>{revisitTotal}</strong>
+                </Total>
+                <Status>
+                  Each different item counts once. Unsure items stay separate
+                  until you decide.
+                </Status>
+                {canFlag && (
+                  <Status role="status">
+                    {checkedCount}/21 spaces checked.{" "}
+                    {unchecked.length > 0
+                      ? `${unchecked.length} still need checking. `
+                      : ""}
+                    {revisitTotal > 0
+                      ? `${revisitTotal} items marked Not sure still need a decision.`
+                      : ""}
+                  </Status>
+                )}
+                <Controls>
+                  {current.complete ? (
+                    <Control type="button" onClick={() => advance(false)}>
+                      Start another run
+                    </Control>
+                  ) : referenceView ? (
+                    <Control
+                      type="button"
+                      onClick={() => setReferenceView(false)}
+                    >
+                      Return to current floor
+                    </Control>
+                  ) : (
+                    <>
+                      <Control
+                        type="button"
+                        $primary
+                        onClick={() => advance(true)}
+                      >
+                        {current.floor === 0
+                          ? current.retryFloor
+                            ? `Retry floor ${current.retryFloor}`
+                            : "Finish reference · Go to floor 1"
+                          : current.floor === 16
+                            ? "Pass · Complete wing"
+                            : "Pass · Next floor"}
+                      </Control>
+                      {current.floor > 0 && (
+                        <Control type="button" onClick={() => advance(false)}>
+                          Fail · Return to floor 0
+                        </Control>
+                      )}
+                    </>
+                  )}
+                </Controls>
+                <Status aria-live="polite">{announcement}</Status>
+              </DetailColumn>
+            </Workspace>
+          </>
+        )}
         <Footer>
           <FooterActions>
             <FooterLink
@@ -1385,6 +1480,49 @@ export default function App() {
           </FooterActions>
           <p>Unofficial companion · Created by Rockagoth</p>
         </Footer>
+        <NotebookDialog
+          ref={spoilerDialog}
+          aria-labelledby="spoiler-heading"
+          aria-describedby="spoiler-description"
+          onClose={() => {
+            setPendingWing(null);
+            spoilerTrigger.current?.focus();
+          }}
+        >
+          <h2 id="spoiler-heading">Entering a new wing?</h2>
+          <p id="spoiler-description">
+            This tracker reveals the wing’s setting, layout, and object
+            categories. For the best experience, enter this wing in the game
+            first.
+          </p>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              minHeight: 44,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={rememberWing}
+              onChange={(event) => setRememberWing(event.target.checked)}
+            />
+            Don’t show this again for this wing.
+          </label>
+          <Controls>
+            <Control type="button" $primary onClick={openPendingWing}>
+              Open wing
+            </Control>
+            <Control
+              type="button"
+              autoFocus
+              onClick={() => spoilerDialog.current?.close()}
+            >
+              Go back
+            </Control>
+          </Controls>
+        </NotebookDialog>
       </Page>
     </>
   );
