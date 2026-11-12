@@ -1,4 +1,3 @@
-
 export const GALLERY_AREAS = [
   "Entrance wall",
   "Middle wall · entrance face",
@@ -20,6 +19,8 @@ export function initialState() {
       [1, 2, 3, 4].map((id) => [
         id,
         {
+          notebookMode: null,
+          customSpots: [],
           floor: 0,
           retryFloor: null,
           complete: false,
@@ -74,6 +75,17 @@ export function restoreState(raw) {
       ? wing.floor - (legacy && !wing.complete ? 1 : 0)
       : 0;
     result.wings[id] = {
+      notebookMode: ["blank", "guided"].includes(wing.notebookMode)
+        ? wing.notebookMode
+        : Object.keys(references).length ||
+            wing.floor > 0 ||
+            wing.galleryEntries ||
+            Object.values(wing.galleryNotes ?? {}).some(Boolean)
+          ? "guided"
+          : null,
+      customSpots: validCustomSpots(wing.customSpots)
+        ? (wing.customSpots ?? [])
+        : [],
       floor: Math.min(16, Math.max(0, migratedFloor)),
       complete: wing.complete === true && wing.floor === 16,
       retryFloor:
@@ -85,7 +97,12 @@ export function restoreState(raw) {
           : null,
       references,
       ...(validGalleryEntries(wing.galleryEntries) && wing.galleryEntries
-        ? { galleryEntries: galleryEntries(wing.galleryEntries) }
+        ? {
+            galleryEntries: galleryEntries(
+              wing.galleryEntries,
+              wing.notebookMode,
+            ),
+          }
         : {}),
       galleryNotes: Object.fromEntries(
         GALLERY_AREAS.map((area) => [
@@ -148,20 +165,28 @@ export function spaceChecked(reference, flags, id) {
   );
 }
 
-// Draft counts from the walkthrough; left/right each get an adjustable placeholder.
-export function galleryEntries(saved) {
-  const counts = [4, 3, 1, 1, 3, 3];
+// Wall counts remain provisional. Each visible display-case side is one entry.
+export function galleryEntries(saved, mode = "guided") {
+  const counts = [4, 3, 3, 4, 3, 3];
   return Object.fromEntries(
     GALLERY_AREAS.map((area, index) => [
       area,
       Array.isArray(saved?.[area])
         ? saved[area]
-        : Array.from({ length: counts[index] }, (_, n) => ({
-            id: `gallery-${index}-${n}`,
-            type: "",
-            notes: "",
-            status: null,
-          })),
+        : Array.from(
+            { length: mode === "blank" || mode === null ? 0 : counts[index] },
+            (_, n) => ({
+              id: `gallery-${index}-${n}`,
+              type:
+                index === 2 && n === 2
+                  ? "Framed art"
+                  : index === 2 || index === 3
+                    ? "Display"
+                    : "",
+              notes: "",
+              status: null,
+            }),
+          ),
     ]),
   );
 }
@@ -196,4 +221,54 @@ function clearGalleryMarks(wing) {
       items.map((item) => ({ ...item, status: null })),
     ]),
   );
+}
+
+export function validCustomSpots(spots) {
+  return (
+    spots === undefined ||
+    (Array.isArray(spots) &&
+      spots.length <= 100 &&
+      new Set(spots.map((x) => x?.id)).size === spots.length &&
+      spots.every(
+        (x) =>
+          x &&
+          typeof x.id === "string" &&
+          /^custom-[a-zA-Z0-9-]{1,80}$/.test(x.id) &&
+          Number.isInteger(x.section) &&
+          x.section >= 1 &&
+          x.section <= 6 &&
+          typeof x.location === "string" &&
+          x.location.length <= 200,
+      ))
+  );
+}
+export function chooseNotebookMode(wing, mode, wingId) {
+  if (!["blank", "guided"].includes(mode) || mode === wing.notebookMode)
+    return wing;
+  const next = { ...wing, notebookMode: mode };
+  if (wingId === 2) {
+    const current = galleryEntries(wing.galleryEntries, wing.notebookMode);
+    const defaults = galleryEntries(undefined, "guided");
+    let capacity = Math.max(0, 100 - Object.values(current).flat().length);
+    next.galleryEntries = Object.fromEntries(
+      GALLERY_AREAS.map((area) => {
+        const existing = current[area];
+        // Keep every saved entry. Guided only tops up areas with fewer slots.
+        const additions =
+          mode === "guided"
+            ? defaults[area]
+                .slice(existing.length, existing.length + capacity)
+                .map((x) => ({
+                  ...x,
+                  id: `guided-${crypto.randomUUID()}`,
+                  type: "",
+                }))
+            : [];
+        capacity -= additions.length;
+        return [area, [...existing, ...additions]];
+      }),
+    );
+    if (Object.values(next.galleryEntries).flat().length > 100) return wing;
+  }
+  return next;
 }

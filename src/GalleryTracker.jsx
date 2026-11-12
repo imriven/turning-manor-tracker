@@ -1,5 +1,4 @@
-
-import { useState } from "react";
+import { useRef, useState } from "react";
 import styled from "styled-components";
 import { GALLERY_AREAS, galleryEntries } from "./trackerState";
 
@@ -40,6 +39,38 @@ const Panel = styled.section`
     flex-wrap: wrap;
     gap: 8px;
     margin: 10px 0;
+  }
+`;
+const FloorHeader = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+  .floor-copy {
+    min-width: 0;
+    flex: 1;
+  }
+  h2 {
+    font-size: clamp(1.2rem, 4vw, 1.6rem);
+  }
+  @media (max-width: 380px) {
+    gap: 8px;
+  }
+`;
+const HelpDialog = styled.dialog`
+  width: min(520px, calc(100% - 24px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 24px;
+  color: #eee2ce;
+  background: #39281e;
+  border: 3px double #b49360;
+  box-shadow: 0 18px 60px #0009;
+  &::backdrop {
+    background: #000a;
+  }
+  p {
+    line-height: 1.6;
   }
 `;
 const Plan = styled.nav`
@@ -102,15 +133,19 @@ const ANSWERS = [
 ];
 export default function GalleryTracker({
   wing,
+  ElevatorIndicator,
   onUpdate,
   onAdvance,
   onExport,
+  onSetup,
   message,
   error,
 }) {
+  const helpDialog = useRef(null);
   const [viewReference, setViewReference] = useState(false);
   const [removing, setRemoving] = useState(null);
-  const entries = galleryEntries(wing.galleryEntries);
+  const guided = wing.notebookMode === "guided";
+  const entries = galleryEntries(wing.galleryEntries, wing.notebookMode);
   const flat = GALLERY_AREAS.flatMap((area) => entries[area]);
   const canAssess = wing.floor > 0 && !viewReference && !wing.complete;
   const editing = wing.floor === 0 || viewReference;
@@ -121,9 +156,9 @@ export default function GalleryTracker({
     onUpdate((old) => ({
       ...old,
       galleryEntries: {
-        ...galleryEntries(old.galleryEntries),
-        [area]: galleryEntries(old.galleryEntries)[area].map((x) =>
-          x.id === id ? { ...x, ...patch } : x,
+        ...galleryEntries(old.galleryEntries, old.notebookMode),
+        [area]: galleryEntries(old.galleryEntries, old.notebookMode)[area].map(
+          (x) => (x.id === id ? { ...x, ...patch } : x),
         ),
       },
     }));
@@ -154,14 +189,14 @@ export default function GalleryTracker({
             {wing.floor === 0
               ? wing.retryFloor
                 ? `Retry floor ${wing.retryFloor}`
-                : "Finish reference · Go to floor 1"
+                : "Finish Primer Floor · Go to floor 1"
               : wing.floor === 16
                 ? "Pass · Complete wing"
                 : "Pass · Next floor"}
           </button>
           {wing.floor > 0 && (
             <button onClick={() => advance(false)}>
-              Fail · Review reference floor 0
+              Fail · Review Primer Floor
             </button>
           )}
         </>
@@ -174,29 +209,78 @@ export default function GalleryTracker({
   return (
     <>
       <Panel>
-        <h2>
-          Wing 2 · Floor {wing.floor} ·{" "}
-          {viewReference
-            ? "Reference notes"
-            : wing.floor === 0
-              ? "Reference floor"
-              : wing.complete
-                ? "Wing complete"
-                : "Anomaly floor"}
-        </h2>
-        <p>
-          Track labeled exhibits only: 7 framed artworks, 4 sculptures, 6
-          displays. See from all angles.
-        </p>
-        <p>
-          The wall slots follow our provisional walkthrough, not a confirmed
-          exhibit map. Choose each exhibit’s type yourself. Add or remove slots
-          on the reference floor as you confirm locations.
-        </p>
-        <p>
-          Entrance is at the top. Left and right retain the same names as your
-          walkthrough. The map is schematic.
-        </p>
+        <FloorHeader>
+          <ElevatorIndicator floor={viewReference ? 0 : wing.floor} />
+          <div className="floor-copy">
+            <small>{guided ? "Guided notebook" : "Blank notebook"}</small>
+            <h2>
+              Wing 2 ·{" "}
+              {viewReference || wing.floor === 0
+                ? "Primer Floor"
+                : wing.complete
+                  ? "Wing complete"
+                  : `Floor ${wing.floor}`}
+            </h2>
+            <p>
+              {viewReference || wing.floor === 0
+                ? "Track 7 framed artworks, 4 sculptures, and 6 display sides. Ignore unlabeled art. Add what you see and describe its appearance."
+                : "Compare each exhibit with your notes. Mark differences or choose Not sure to revisit."}
+            </p>
+            <button
+              type="button"
+              onClick={() => helpDialog.current?.showModal()}
+            >
+              Help &amp; backup
+            </button>
+          </div>
+        </FloorHeader>
+        <HelpDialog ref={helpDialog} aria-labelledby="gallery-help-title">
+          <h2 id="gallery-help-title">Using the gallery tracker</h2>
+          <p>
+            Record labeled exhibits on the Primer Floor. On anomaly floors,
+            compare each exhibit with your notes and choose Looks the same,
+            Something’s different, or Not sure. Revisit uncertain items before
+            choosing your exit.
+          </p>
+          <p>Track 7 framed artworks, 4 sculptures, and 6 display sides. Ignore unlabeled art. Each visible side of a display counts separately. </p>
+          <p>
+            The entrance is at the top of the map. Select an area to jump to its
+            observations. The map is schematic.
+            {guided && " Suggested wall slots are provisional."} Add or remove
+            exhibits on the Primer Floor to match what you see.
+          </p>
+          <p>
+            If you fail, review the Primer Floor and then retry the floor you
+            failed. You do not have to repeat passed floors.
+          </p>
+          <p>
+            Notes and choices save automatically in this browser. Export a
+            notebook to keep a separate backup. To import a notebook, use Help
+            &amp; backups in Wing 1.
+          </p>
+          <div className="actions">
+            <button
+              type="button"
+              onClick={() => {
+                helpDialog.current?.close();
+                onSetup();
+              }}
+            >
+              Notebook setup
+            </button>
+            <button type="button" onClick={onExport}>
+              Export notebook
+            </button>
+            <button
+              type="button"
+              autoFocus
+              onClick={() => helpDialog.current?.close()}
+            >
+              Close help
+            </button>
+          </div>
+          {message && <p role="status">{message}</p>}
+        </HelpDialog>
         <p>
           Reference recorded:{" "}
           {TYPES.map(
@@ -210,13 +294,11 @@ export default function GalleryTracker({
         )}
         {canAssess && (
           <p role="status">
-            {checked}/{flat.length} exhibits checked · {different} anomalies
-            marked · {unsure} to revisit
+            {checked} of your {flat.length} recorded exhibits checked ·{" "}
+            {different} anomalies marked · {unsure} to revisit
           </p>
         )}
         {controls}
-        <button onClick={onExport}>Export notebook</button>
-        <p>Notes and choices save automatically in this browser.</p>
         {error && <p role="alert">{error}</p>}
         {message && <p role="status">{message}</p>}
         <Plan aria-label="Gallery wall map">
@@ -240,7 +322,7 @@ export default function GalleryTracker({
                 <br />
                 {canAssess
                   ? `${items.filter((x) => x.type && x.status).length}/${items.length} checked`
-                  : `${items.length} slots`}
+                  : `${items.length} ${guided ? "slots" : "added"}`}
                 {canAssess && (
                   <>
                     <br />
@@ -263,6 +345,14 @@ export default function GalleryTracker({
           style={{ scrollMarginTop: 20 }}
         >
           <h3>{area}</h3>
+          {guided && (index === 2 || index === 3) && (
+            <p>
+              {index === 2
+                ? "Left gallery: one framed artwork and two visible display sides."
+                : "Right gallery: four visible display sides and no framed artwork."}{" "}
+              Each side gets its own notes and assessment.
+            </p>
+          )}
           {wing.galleryNotes?.[area] && (
             <details>
               <summary>Earlier wall notes</summary>
@@ -271,11 +361,59 @@ export default function GalleryTracker({
               </p>
             </details>
           )}
+          {guided && editing && (index === 2 || index === 3) && (
+            <button
+              disabled={
+                flat.length +
+                  Math.max(
+                    0,
+                    (index === 2 ? 2 : 4) -
+                      entries[area].filter((x) => x.type === "Display").length,
+                  ) >
+                  100 ||
+                entries[area].filter((x) => x.type === "Display").length >=
+                  (index === 2 ? 2 : 4)
+              }
+              onClick={() =>
+                onUpdate((old) => {
+                  const all = galleryEntries(
+                    old.galleryEntries,
+                    old.notebookMode,
+                  );
+                  const existing = all[area];
+                  const missing = Math.max(
+                    0,
+                    (index === 2 ? 2 : 4) -
+                      existing.filter((x) => x.type === "Display").length,
+                  );
+                  return {
+                    ...old,
+                    galleryEntries: {
+                      ...all,
+                      [area]: [
+                        ...existing,
+                        ...Array.from({ length: missing }, () => ({
+                          id: crypto.randomUUID(),
+                          type: "Display",
+                          notes: "",
+                          status: null,
+                        })),
+                      ],
+                    },
+                  };
+                })
+              }
+            >
+              Add missing display sides
+            </button>
+          )}
           <Cards>
             {entries[area].map((item, i) => (
               <Card key={item.id}>
                 <strong>
-                  Exhibit {i + 1}
+                  {item.type === "Display"
+                    ? `Display side ${entries[area].slice(0, i + 1).filter((entry) => entry.type === "Display").length}`
+                    : `Exhibit ${i + 1}`}
                   {item.type ? ` · ${item.type}` : ""}
                 </strong>
                 {editing ? (
@@ -314,10 +452,14 @@ export default function GalleryTracker({
                             onUpdate((old) => ({
                               ...old,
                               galleryEntries: {
-                                ...galleryEntries(old.galleryEntries),
-                                [area]: galleryEntries(old.galleryEntries)[
-                                  area
-                                ].filter((x) => x.id !== item.id),
+                                ...galleryEntries(
+                                  old.galleryEntries,
+                                  old.notebookMode,
+                                ),
+                                [area]: galleryEntries(
+                                  old.galleryEntries,
+                                  old.notebookMode,
+                                )[area].filter((x) => x.id !== item.id),
                               },
                             }));
                             setRemoving(null);
@@ -375,9 +517,11 @@ export default function GalleryTracker({
                   onUpdate((old) => ({
                     ...old,
                     galleryEntries: {
-                      ...galleryEntries(old.galleryEntries),
+                      ...galleryEntries(old.galleryEntries, old.notebookMode),
                       [area]: [
-                        ...galleryEntries(old.galleryEntries)[area],
+                        ...galleryEntries(old.galleryEntries, old.notebookMode)[
+                          area
+                        ],
                         {
                           id: crypto.randomUUID(),
                           type: "",
@@ -398,8 +542,8 @@ export default function GalleryTracker({
       <Panel>
         {canAssess && (
           <p role="status">
-            {checked}/{flat.length} exhibits checked · {different} anomalies
-            marked · {unsure} to revisit
+            {checked} of your {flat.length} recorded exhibits checked ·{" "}
+            {different} anomalies marked · {unsure} to revisit
           </p>
         )}
         {controls}

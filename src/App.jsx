@@ -1,10 +1,14 @@
-
 import { useEffect, useRef, useState } from "react";
 import styled, { createGlobalStyle } from "styled-components";
+import NotebookSetup from "./NotebookSetup";
+import BlankHallway, { notebookSpots } from "./BlankHallway";
 import GalleryTracker from "./GalleryTracker";
+import { wingIsAvailable } from "./wingAvailability";
 import ObservationSpot from "./ObservationSpot";
 import {
   STORAGE_KEY,
+  validCustomSpots,
+  chooseNotebookMode,
   validGalleryEntries,
   initialState,
   restoreState,
@@ -199,7 +203,11 @@ function ElevatorDial({ floor }) {
     <Dial
       viewBox="0 0 200 132"
       role="img"
-      aria-label={`Elevator indicator: floor ${floor} of 16`}
+      aria-label={
+        floor === 0
+          ? "Elevator indicator: Primer Floor"
+          : `Elevator indicator: floor ${floor} of 16`
+      }
     >
       <path
         d="M8 112 V100 A92 92 0 0 1 192 100 V112 Z"
@@ -226,7 +234,7 @@ function ElevatorDial({ floor }) {
             fontFamily="Georgia,serif"
             fontSize="11"
           >
-            {i}
+            {i === 0 ? "P" : i}
           </text>
         );
       })}
@@ -255,7 +263,7 @@ function ElevatorDial({ floor }) {
         fontSize="12"
         fontFamily="Georgia,serif"
       >
-        FLOOR {String(floor).padStart(2, "0")} / 16
+        {floor === 0 ? "PRIMER FLOOR" : `FLOOR ${floor} / 16`}
       </text>
     </Dial>
   );
@@ -695,8 +703,8 @@ function HallwayOverview({
     <Overview aria-labelledby="hallway-overview">
       <h2 id="hallway-overview">Hallway overview</h2>
       <Total role="status" aria-live="polite" aria-atomic="true">
-        Floor {floor} · Anomalies marked: <strong>{total}</strong> · Items to
-        revisit: <strong>{revisit}</strong>
+        {floor === 0 ? "Primer Floor" : `Floor ${floor}`} · Anomalies marked:{" "}
+        <strong>{total}</strong> · Items to revisit: <strong>{revisit}</strong>
       </Total>
       <Status>
         Even side left · Odd side right. Select a space to jump to it. Maroon
@@ -792,13 +800,24 @@ function validateNotebook(value) {
             (note) => typeof note !== "string",
           ))) ||
       !validGalleryEntries(wing.galleryEntries) ||
+      !validCustomSpots(wing.customSpots) ||
+      (wing.notebookMode != null &&
+        !["blank", "guided"].includes(wing.notebookMode)) ||
       !record(wing.references) ||
       !record(wing.flags)
     )
       throw new Error("This notebook has invalid floor data.");
+    const customIds = new Set((wing.customSpots ?? []).map((x) => x.id));
+    const customFlags = new Set(
+      [...customIds].flatMap((key) =>
+        ["Plant", "Painting", "Shelf", "appeared"].map(
+          (type) => `${key}-${type}`,
+        ),
+      ),
+    );
     for (const [spot, ref] of Object.entries(wing.references)) {
       if (
-        !ids.has(spot) ||
+        (!ids.has(spot) && !customIds.has(spot)) ||
         !record(ref) ||
         !Array.isArray(ref.items) ||
         ref.items.length < 1 ||
@@ -813,7 +832,7 @@ function validateNotebook(value) {
     }
     for (const [flag, status] of Object.entries(wing.flags)) {
       if (
-        !flagIds.has(flag) ||
+        (!flagIds.has(flag) && !customFlags.has(flag)) ||
         !["same", "different", "unsure"].includes(status)
       )
         throw new Error("This notebook has invalid observations.");
@@ -823,12 +842,7 @@ function validateNotebook(value) {
     JSON.stringify({ ...value.state, version: value.version }),
   );
 }
-const wings = [
-  { id: 1, available: true },
-  { id: 2, available: true },
-  { id: 3, available: false },
-  { id: 4, available: false },
-];
+const wings = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }];
 
 function HallwaySection({ sectionNumber, renderSpot, progressText }) {
   const odd = String(sectionNumber * 2 - 1).padStart(2, "0");
@@ -906,6 +920,19 @@ export default function App() {
     }
   });
   const [state, setState] = useState(loaded.state);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [now, setNow] = useState(Date.now);
+  const isDevelopment = import.meta.env.DEV;
+  const available = (id) => wingIsAvailable(id, now, isDevelopment);
+  useEffect(() => {
+    const refresh = () => setNow(Date.now());
+    const timer = window.setInterval(refresh, 1000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
   const [saveError, setSaveError] = useState(loaded.error);
   const [referenceView, setReferenceView] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
@@ -933,12 +960,13 @@ export default function App() {
       spoilerDialog.current?.showModal();
   }, [pendingWing]);
   function selectWing(id) {
+    if (!available(id)) return;
     setState((previous) => ({ ...previous, activeWing: id }));
     setReferenceView(false);
     setMapOpen(false);
   }
   function requestWing(id, trigger) {
-    if (id === state.activeWing) return;
+    if (!available(id) || id === activeWing) return;
     if (
       id === 1 ||
       visitedWings.current.has(id) ||
@@ -974,20 +1002,35 @@ export default function App() {
   const [notebookMessage, setNotebookMessage] = useState("");
   const [importRevision, setImportRevision] = useState(0);
   const [savingPaused, setSavingPaused] = useState(Boolean(loaded.error));
-  const activeWing = state.activeWing;
+  const activeWing = available(state.activeWing) ? state.activeWing : 1;
   const current = state.wings[activeWing];
-  const anomalyTotal = allSpotIds().reduce(
+  const blankMode = current.notebookMode === "blank";
+  const spotIds = blankMode
+    ? notebookSpots(current).map((x) => x.id)
+    : [...allSpotIds(), ...(current.customSpots ?? []).map((x) => x.id)];
+  useEffect(() => {
+    setSetupOpen(!current.notebookMode);
+  }, [activeWing, current.notebookMode, importRevision]);
+  function openSetup() {
+    notebookDialog.current?.close();
+    setSetupOpen(true);
+  }
+  function applyMode(mode) {
+    updateWing((wing) => chooseNotebookMode(wing, mode, activeWing));
+  }
+
+  const anomalyTotal = spotIds.reduce(
     (total, id) => total + markedAt(current.flags, id),
     0,
   );
-  const revisitTotal = allSpotIds().reduce(
+  const revisitTotal = spotIds.reduce(
     (total, id) => total + unsureAt(current.flags, id),
     0,
   );
-  const unchecked = allSpotIds().filter(
+  const unchecked = spotIds.filter(
     (id) => !spaceChecked(current.references[id], current.flags, id),
   );
-  const checkedCount = 21 - unchecked.length;
+  const checkedCount = spotIds.length - unchecked.length;
   function jumpToUnchecked() {
     setMapOpen(false);
     requestAnimationFrame(() => {
@@ -1107,7 +1150,7 @@ export default function App() {
           : `Now on floor ${current.floor === 0 ? (current.retryFloor ?? 1) : current.floor + 1}.`
         : current.complete
           ? "New run. Your reference notes are preserved."
-          : `Returned to floor 0. Retry floor ${current.floor || current.retryFloor || 1} when ready.`,
+          : `Returned to the Primer Floor. Retry floor ${current.floor || current.retryFloor || 1} when ready.`,
     );
   }
   function renderSpot(id, location) {
@@ -1155,20 +1198,43 @@ export default function App() {
               type="button"
               $active={activeWing === wing.id}
               aria-current={activeWing === wing.id ? "page" : undefined}
-              disabled={!wing.available}
+              disabled={!available(wing.id)}
               onClick={(event) => requestWing(wing.id, event.currentTarget)}
             >
               Wing {wing.id}
-              <small>{wing.available ? "Available" : "Locked"}</small>
+              <small>
+                {available(wing.id)
+                  ? "Available"
+                  : wing.id === 2
+                    ? "Opens Dec 2"
+                    : "Locked"}
+              </small>
             </WingButton>
           ))}
         </WingMenu>
-        {activeWing === 2 ? (
+        {setupOpen && (
+          <NotebookSetup
+            key={`setup-${activeWing}-${importRevision}`}
+            mode={current.notebookMode}
+            wingId={activeWing}
+            onChoose={applyMode}
+            onClose={() => setSetupOpen(false)}
+          />
+        )}
+        {!current.notebookMode ? (
+          <Controls>
+            <Control onClick={() => setSetupOpen(true)}>
+              Choose notebook setup
+            </Control>
+          </Controls>
+        ) : activeWing === 2 ? (
           <GalleryTracker
             key={`${activeWing}-${importRevision}`}
             wing={current}
+            ElevatorIndicator={ElevatorDial}
             onUpdate={updateWing}
             onAdvance={advance}
+            onSetup={openSetup}
             onExport={exportNotebook}
             message={notebookMessage}
             error={saveError}
@@ -1178,6 +1244,9 @@ export default function App() {
             <FloorBar aria-label="Current floor">
               <ElevatorDial floor={current.floor} />
               <div className="floor-copy">
+                <small>
+                  {blankMode ? "Blank notebook" : "Guided notebook"}
+                </small>
                 <h2>
                   Wing {activeWing} ·{" "}
                   {current.complete
@@ -1185,7 +1254,7 @@ export default function App() {
                     : referenceView
                       ? "Reference notes"
                       : current.floor === 0
-                        ? "Reference floor"
+                        ? "Primer Floor"
                         : "Anomaly floor"}
                 </h2>
                 <p>
@@ -1201,10 +1270,12 @@ export default function App() {
                 )}
                 {canFlag && (
                   <p role="status">
-                    {checkedCount}/21 spaces checked ·{" "}
+                    {checkedCount} of {blankMode ? "your " : ""}
+                    {spotIds.length} {blankMode ? "recorded spaces" : "spaces"}{" "}
+                    checked ·{" "}
                     {unchecked.length
                       ? `${unchecked.length} still need checking`
-                      : "Every space checked"}{" "}
+                      : "All recorded checks complete"}{" "}
                     · {revisitTotal} items to revisit
                   </p>
                 )}
@@ -1261,6 +1332,7 @@ export default function App() {
                   Close
                 </Control>
               </div>
+              <Control onClick={openSetup}>Notebook setup</Control>
               <p>
                 Your progress saves in this browser. Use Save reference to keep
                 item edits. Save or cancel open edits before changing floors or
@@ -1332,78 +1404,123 @@ export default function App() {
             </NotebookDialog>
             <Workspace>
               <Sidebar aria-label="Hallway navigation">
-                <MobileSummary>
-                  <span>
-                    Floor {current.floor}/16 · <strong>{anomalyTotal}</strong>{" "}
-                    marked · <strong>{revisitTotal}</strong> revisit
-                    {canFlag && (
-                      <span style={{ display: "block" }}>
-                        {checkedCount}/21 spaces checked
+                {blankMode ? (
+                  <MapPanel $open>
+                    <h2>Your sections</h2>
+                    {[1, 2, 3, 4, 5, 6].map((n) => (
+                      <p key={n}>
+                        <a
+                          href={`#blank-section-${n}`}
+                          style={{ color: "inherit" }}
+                        >
+                          {n === 6 ? "End section" : `Section ${n}`}
+                        </a>
+                      </p>
+                    ))}
+                  </MapPanel>
+                ) : (
+                  <>
+                    <MobileSummary>
+                      <span>
+                        {current.floor === 0
+                          ? "Primer Floor"
+                          : `Floor ${current.floor}/16`}{" "}
+                        · <strong>{anomalyTotal}</strong> marked ·{" "}
+                        <strong>{revisitTotal}</strong> revisit
+                        {canFlag && (
+                          <span style={{ display: "block" }}>
+                            {checkedCount} of {blankMode ? "your " : ""}
+                            {spotIds.length}{" "}
+                            {blankMode ? "recorded spaces" : "spaces"} checked
+                          </span>
+                        )}
                       </span>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    aria-expanded={mapOpen}
-                    aria-controls="map-panel"
-                    onClick={() => setMapOpen((value) => !value)}
-                  >
-                    {mapOpen ? "Close map" : "Open map"}
-                  </button>
-                </MobileSummary>
-                <MapPanel id="map-panel" $open={mapOpen}>
-                  <HallwayOverview
-                    flags={current.flags}
-                    references={current.references}
-                    checking={canFlag}
-                    floor={current.floor}
-                    total={anomalyTotal}
-                    revisit={revisitTotal}
-                    onJump={() => setMapOpen(false)}
-                  />
-                </MapPanel>
+                      <button
+                        type="button"
+                        aria-expanded={mapOpen}
+                        aria-controls="map-panel"
+                        onClick={() => setMapOpen((value) => !value)}
+                      >
+                        {mapOpen ? "Close map" : "Open map"}
+                      </button>
+                    </MobileSummary>
+                    <MapPanel id="map-panel" $open={mapOpen}>
+                      <HallwayOverview
+                        flags={current.flags}
+                        references={current.references}
+                        checking={canFlag}
+                        floor={current.floor}
+                        total={anomalyTotal}
+                        revisit={revisitTotal}
+                        onJump={() => setMapOpen(false)}
+                      />
+                    </MapPanel>
+                  </>
+                )}
               </Sidebar>
               <DetailColumn>
                 <HallwayStack>
-                  {[1, 2, 3, 4, 5].map((number) => (
-                    <HallwaySection
-                      key={number}
-                      sectionNumber={number}
-                      progressText={
-                        canFlag
-                          ? `${allSpotIds().filter((id) => id.startsWith(`s${number}-`) && spaceChecked(current.references[id], current.flags, id)).length}/4 spaces checked`
-                          : null
-                      }
+                  {blankMode ? (
+                    <BlankHallway
+                      wing={current}
+                      onUpdate={updateWing}
                       renderSpot={renderSpot}
+                      editing={current.floor === 0 || referenceView}
                     />
-                  ))}
-                  <SectionFrame aria-labelledby="end-section">
-                    <SectionHeading>
-                      <h2 id="end-section">End section</h2>
-                      <span>
-                        Corner
-                        {canFlag && (
-                          <small style={{ display: "block" }}>
-                            {spaceChecked(
-                              current.references["end-corner"],
-                              current.flags,
-                              "end-corner",
-                            )
-                              ? "1/1 space checked"
-                              : "0/1 space checked"}
-                          </small>
-                        )}
-                      </span>
-                    </SectionHeading>
-                    <CornerSpace>
-                      {renderSpot("end-corner", "End of hallway, corner")}
-                    </CornerSpace>
-                  </SectionFrame>
+                  ) : (
+                    <>
+                      {[1, 2, 3, 4, 5].map((number) => (
+                        <HallwaySection
+                          key={number}
+                          sectionNumber={number}
+                          progressText={
+                            canFlag
+                              ? `${allSpotIds().filter((id) => id.startsWith(`s${number}-`) && spaceChecked(current.references[id], current.flags, id)).length}/4 spaces checked`
+                              : null
+                          }
+                          renderSpot={renderSpot}
+                        />
+                      ))}
+                      <SectionFrame aria-labelledby="end-section">
+                        <SectionHeading>
+                          <h2 id="end-section">End section</h2>
+                          <span>
+                            Corner
+                            {canFlag && (
+                              <small style={{ display: "block" }}>
+                                {spaceChecked(
+                                  current.references["end-corner"],
+                                  current.flags,
+                                  "end-corner",
+                                )
+                                  ? "1/1 space checked"
+                                  : "0/1 space checked"}
+                              </small>
+                            )}
+                          </span>
+                        </SectionHeading>
+                        <CornerSpace>
+                          {renderSpot("end-corner", "End of hallway, corner")}
+                        </CornerSpace>
+                      </SectionFrame>
+                      {(current.customSpots ?? []).length > 0 && (
+                        <BlankHallway
+                          wing={current}
+                          onUpdate={updateWing}
+                          renderSpot={renderSpot}
+                          editing={current.floor === 0 || referenceView}
+                          customOnly
+                        />
+                      )}
+                    </>
+                  )}
                 </HallwayStack>
                 <Total>
-                  Floor {current.floor} · Anomalies marked:{" "}
-                  <strong>{anomalyTotal}</strong> · Items to revisit:{" "}
-                  <strong>{revisitTotal}</strong>
+                  {current.floor === 0
+                    ? "Primer Floor"
+                    : `Floor ${current.floor}`}{" "}
+                  · Anomalies marked: <strong>{anomalyTotal}</strong> · Items to
+                  revisit: <strong>{revisitTotal}</strong>
                 </Total>
                 <Status>
                   Each different item counts once. Unsure items stay separate
@@ -1411,7 +1528,9 @@ export default function App() {
                 </Status>
                 {canFlag && (
                   <Status role="status">
-                    {checkedCount}/21 spaces checked.{" "}
+                    {checkedCount} of {blankMode ? "your " : ""}
+                    {spotIds.length} {blankMode ? "recorded spaces" : "spaces"}{" "}
+                    checked.{" "}
                     {unchecked.length > 0
                       ? `${unchecked.length} still need checking. `
                       : ""}
@@ -1449,7 +1568,7 @@ export default function App() {
                       </Control>
                       {current.floor > 0 && (
                         <Control type="button" onClick={() => advance(false)}>
-                          Fail · Return to floor 0
+                          Fail · Return to Primer Floor
                         </Control>
                       )}
                     </>
