@@ -1,5 +1,5 @@
-// December 2, 2026 at midnight Pacific (PST).
-export const WING_2_RELEASE = Date.parse("2026-12-02T00:00:00-08:00");
+// December 9, 2026 at midnight Pacific (PST).
+export const WING_2_RELEASE = Date.parse("2026-12-09T00:00:00-08:00");
 
 // This is a spoiler/release convenience, not a security boundary.
 export function wingIsAvailable(id, now = Date.now(), development = false) {

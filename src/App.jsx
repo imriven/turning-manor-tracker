@@ -1206,7 +1206,7 @@ export default function App() {
                 {available(wing.id)
                   ? "Available"
                   : wing.id === 2
-                    ? "Opens Dec 2"
+                    ? "Opens Dec 9"
                     : "Locked"}
               </small>
             </WingButton>
