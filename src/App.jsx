@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import styled, { createGlobalStyle } from "styled-components";
 import NotebookSetup from "./NotebookSetup";
 import BlankHallway, { notebookSpots } from "./BlankHallway";
+import StudioTracker from "./StudioTracker";
 import GalleryTracker from "./GalleryTracker";
 import { wingIsAvailable } from "./wingAvailability";
 import ObservationSpot from "./ObservationSpot";
@@ -10,6 +11,7 @@ import {
   validCustomSpots,
   chooseNotebookMode,
   validGalleryEntries,
+  validStudioEntries,
   initialState,
   restoreState,
   finishFloor,
@@ -800,6 +802,7 @@ function validateNotebook(value) {
             (note) => typeof note !== "string",
           ))) ||
       !validGalleryEntries(wing.galleryEntries) ||
+      !validStudioEntries(wing.studioEntries) ||
       !validCustomSpots(wing.customSpots) ||
       (wing.notebookMode != null &&
         !["blank", "guided"].includes(wing.notebookMode)) ||
@@ -1145,7 +1148,7 @@ export default function App() {
     });
     setAnnouncement(
       passed
-        ? current.floor === 16
+        ? current.floor === 15
           ? "Wing complete!"
           : `Now on floor ${current.floor === 0 ? (current.retryFloor ?? 1) : current.floor + 1}.`
         : current.complete
@@ -1207,7 +1210,9 @@ export default function App() {
                   ? "Available"
                   : wing.id === 2
                     ? "Opens Nov 28"
-                    : "Locked"}
+                    : wing.id === 3
+                      ? "Opens Dec 12"
+                      : "Locked"}
               </small>
             </WingButton>
           ))}
@@ -1227,6 +1232,36 @@ export default function App() {
               Choose notebook setup
             </Control>
           </Controls>
+        ) : current.complete ? (
+          <FloorBar aria-label="Wing complete">
+            <ElevatorDial floor={16} />
+            <div className="floor-copy">
+              <h2>Wing {activeWing} complete</h2>
+              <p>
+                You passed all 15 anomaly floors. Floor 16 is your completion
+                stop.
+              </p>
+              <Controls>
+                <Control onClick={() => advance(false)}>
+                  Start another run
+                </Control>
+                <Control onClick={exportNotebook}>Export notebook</Control>
+              </Controls>
+              {notebookMessage && <p role="status">{notebookMessage}</p>}
+            </div>
+          </FloorBar>
+        ) : activeWing === 3 ? (
+          <StudioTracker
+            key={`studio-${importRevision}`}
+            wing={current}
+            ElevatorIndicator={ElevatorDial}
+            onUpdate={updateWing}
+            onAdvance={advance}
+            onSetup={openSetup}
+            onExport={exportNotebook}
+            message={notebookMessage}
+            error={saveError}
+          />
         ) : activeWing === 2 ? (
           <GalleryTracker
             key={`${activeWing}-${importRevision}`}
@@ -1259,7 +1294,7 @@ export default function App() {
                 </h2>
                 <p>
                   {current.floor === 0 || referenceView
-                    ? "10 paintings · 2 shelves · 5 plants. Add what you see and describe its appearance."
+                    ? "8 paintings · 6 instruments · 3 plants. Describe how the paintings and plants look, and how each instrument sounds."
                     : "Compare each item with your notes. Mark differences or choose Not sure to revisit."}
                 </p>
                 {current.floor === 0 && current.retryFloor && (
@@ -1562,7 +1597,7 @@ export default function App() {
                           ? current.retryFloor
                             ? `Retry floor ${current.retryFloor}`
                             : "Finish reference · Go to floor 1"
-                          : current.floor === 16
+                          : current.floor === 15
                             ? "Pass · Complete wing"
                             : "Pass · Next floor"}
                       </Control>

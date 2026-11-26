@@ -190,7 +190,7 @@ export default function GalleryTracker({
               ? wing.retryFloor
                 ? `Retry floor ${wing.retryFloor}`
                 : "Finish Primer Floor · Go to floor 1"
-              : wing.floor === 16
+              : wing.floor === 15
                 ? "Pass · Complete wing"
                 : "Pass · Next floor"}
           </button>
@@ -242,7 +242,10 @@ export default function GalleryTracker({
             Something’s different, or Not sure. Revisit uncertain items before
             choosing your exit.
           </p>
-          <p>Track 7 framed artworks, 4 sculptures, and 6 display sides. Ignore unlabeled art. Each visible side of a display counts separately. </p>
+          <p>
+            Track 7 framed artworks, 4 sculptures, and 6 display sides. Ignore
+            unlabeled art. Each visible side of a display counts separately.
+          </p>
           <p>
             The entrance is at the top of the map. Select an area to jump to its
             observations. The map is schematic.
